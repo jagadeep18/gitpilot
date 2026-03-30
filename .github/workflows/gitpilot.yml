@@ -14,7 +14,6 @@ on:
   issue_comment:
     types: [created]
 
-# Prevent duplicate runs on the same PR
 concurrency:
   group: gitpilot-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
@@ -27,12 +26,8 @@ permissions:
 
 env:
   GITPILOT_VERSION: "1.0.0"
-  GITPILOT_LOG_LEVEL: "info"
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Job 1: AI-Powered Code Review & Security Analysis
-  # ---------------------------------------------------------------------------
   review:
     name: "🔍 Code Review & 🔒 Security Scan"
     runs-on: ubuntu-latest
@@ -53,145 +48,126 @@ jobs:
           python-version: "3.12"
 
       - name: 📦 Install dependencies
-        run: pip install openai pyyaml requests
+        run: pip install requests
 
-      - name: 🤖 Run GitPilot AI Review
-        id: ai-review
+      - name: 📋 Fetch PR diff
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.GITPILOT_API_KEY }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          # Fetch PR diff
-          gh pr diff $PR_NUMBER > /tmp/pr.diff 2>/dev/null || echo "No diff available" > /tmp/pr.diff
+          gh pr diff ${{ github.event.pull_request.number }} > /tmp/pr.diff 2>/dev/null || echo "No diff" > /tmp/pr.diff
 
-          # Get list of changed files with content
-          CHANGED_FILES=$(gh pr view $PR_NUMBER --json files --jq '.files[].path' 2>/dev/null || echo "unknown")
-
-          python3 << 'PYTHON_SCRIPT'
+      - name: 🤖 Run GitPilot AI Review
+        env:
+          OPENAI_API_KEY: ${{ secrets.GITPILOT_API_KEY }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          cat > /tmp/gitpilot_review.py << 'EOF'
           import os, json, requests
 
           api_key = os.environ.get("OPENAI_API_KEY", "")
-          pr_number = os.environ.get("PR_NUMBER", "0")
+          pr_num = os.environ.get("PR_NUM", "0")
 
-          # Read the diff
           with open("/tmp/pr.diff", "r") as f:
               diff = f.read()
 
           if not diff.strip():
               diff = "No diff available"
-
-          # Truncate diff if too large (API limit)
           if len(diff) > 12000:
               diff = diff[:12000] + "\n... (truncated)"
 
-          # Build the prompt from SOUL.md + SKILL.md principles
-          prompt = f"""You are GitPilot, an autonomous AI code review agent. You are reviewing Pull Request #{pr_number}.
+          prompt = f"""You are GitPilot, an autonomous AI code review agent. Review PR #{pr_num}.
 
-          Analyze the following code diff and provide a structured review covering:
+          Analyze the diff and provide a structured review:
 
-          ## 1. 🔍 Code Review
+          ## 1. Code Review
           - Bugs (null dereferences, off-by-one, logic errors)
           - Anti-patterns (god classes, magic numbers, deep nesting)
-          - Performance issues (N+1 queries, O(n²) loops)
-          - Complexity concerns
+          - Performance issues (N+1 queries)
 
-          ## 2. 🔒 Security Analysis  
+          ## 2. Security Analysis
           - Hardcoded secrets (API keys, passwords, tokens)
           - SQL injection, XSS, command injection
           - Unsafe imports (eval, exec, pickle, os.system)
           - Weak cryptography (MD5, SHA1 for passwords)
           - OWASP Top-10 violations
 
-          ## 3. 📊 Risk Score
-          Compute a risk score from 0.0 to 1.0 using:
-          risk = 0.35 × security + 0.25 × bugs + 0.20 × complexity + 0.10 × coverage_gap + 0.10 × doc_debt
+          ## 3. Risk Score
+          Compute risk from 0.0 to 1.0:
+          risk = 0.35 x security + 0.25 x bugs + 0.20 x complexity + 0.10 x coverage_gap + 0.10 x doc_debt
 
-          Format your response EXACTLY as a structured review with:
-          - A one-line verdict: ✅ APPROVED, ⚠️ NEEDS REVIEW, or 🔴 BLOCKED
-          - Risk score with visual bar
-          - Findings table with severity, file, line, description
-          - Suggested fixes for each finding
-          - Use emojis for visual scanning
+          Format response as:
+          - Verdict: APPROVED, NEEDS REVIEW, or BLOCKED
+          - Risk score with bar
+          - Findings table: severity | file | line | description
+          - Suggested fixes
+          - Use emojis
 
-          Here is the diff:
+          Diff:
           ```diff
           {diff}
           ```
 
-          Respond in clean Markdown suitable for a GitHub PR comment."""
+          Respond in clean Markdown for a GitHub PR comment."""
 
-          # Call OpenAI API
-          headers = {{
-              "Authorization": f"Bearer {{api_key}}",
+          headers = {
+              "Authorization": f"Bearer {api_key}",
               "Content-Type": "application/json"
-          }}
+          }
 
-          payload = {{
+          payload = {
               "model": "gpt-4o",
               "messages": [
-                  {{"role": "system", "content": "You are GitPilot, a precise, empathetic, and decisive AI code reviewer. Cite exact line numbers. Provide actionable fixes. Be proportional — critical issues get 🔴, minor issues get 💡."}},
-                  {{"role": "user", "content": prompt}}
+                  {"role": "system", "content": "You are GitPilot, a precise AI code reviewer. Cite line numbers. Provide fixes. Critical issues get red circle emoji, minor get lightbulb emoji."},
+                  {"role": "user", "content": prompt}
               ],
               "temperature": 0.1,
               "max_tokens": 4000
-          }}
+          }
 
           try:
-              response = requests.post(
+              resp = requests.post(
                   "https://api.openai.com/v1/chat/completions",
                   headers=headers,
                   json=payload,
                   timeout=60
               )
-              response.raise_for_status()
-              result = response.json()
+              resp.raise_for_status()
+              result = resp.json()
               review_text = result["choices"][0]["message"]["content"]
           except Exception as e:
-              review_text = f"⚠️ GitPilot AI review encountered an error: {{str(e)}}\\n\\nFalling back to static analysis."
+              review_text = f"GitPilot AI review error: {str(e)}\n\nFalling back to static analysis."
 
-          # Write review to file for next step
           with open("/tmp/review_output.md", "w") as f:
               f.write(review_text)
 
-          print("✅ AI review completed successfully")
-          print(f"Review length: {{len(review_text)}} characters")
-          PYTHON_SCRIPT
+          print("AI review completed")
+          print(f"Review length: {len(review_text)} chars")
+          EOF
 
-      - name: 💬 Post AI Review Comment on PR
+          python3 /tmp/gitpilot_review.py
+
+      - name: 💬 Post Review Comment
         if: always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             let reviewBody = '';
-
             try {
               reviewBody = fs.readFileSync('/tmp/review_output.md', 'utf8');
             } catch (e) {
-              reviewBody = '⚠️ GitPilot could not generate a review. Check the workflow logs.';
+              reviewBody = '⚠️ GitPilot could not generate a review. Check workflow logs.';
             }
-
-            const timestamp = new Date().toISOString();
-            const body = `## 🤖 GitPilot Review — PR #${{ github.event.pull_request.number }}
-
-            ${reviewBody}
-
-            ---
-            *GitPilot v${{ env.GITPILOT_VERSION }} • ${timestamp} • Powered by AI*`;
-
+            const ts = new Date().toISOString();
+            const body = `## 🤖 GitPilot Review — PR #${{ github.event.pull_request.number }}\n\n${reviewBody}\n\n---\n*GitPilot v${{ env.GITPILOT_VERSION }} • ${ts} • Powered by AI*`;
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: body
             });
+            console.log('Review comment posted');
 
-            console.log('✅ Review comment posted to PR');
-
-  # ---------------------------------------------------------------------------
-  # Job 2: Test Generation (runs after review)
-  # ---------------------------------------------------------------------------
   test-generation:
     name: "🧪 Test Generation"
     runs-on: ubuntu-latest
@@ -200,27 +176,10 @@ jobs:
       github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'gitpilot:generate-tests')
     timeout-minutes: 10
-
     steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - run: echo "Test generator would run here"
 
-      - name: 🐍 Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: 🧪 Run Test Generator Agent
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.GITPILOT_API_KEY }}
-        run: |
-          echo "Test Generator agent would analyze modified functions and generate tests."
-          echo "Tests would be committed to a gitpilot/* branch and a PR opened."
-
-  # ---------------------------------------------------------------------------
-  # Job 3: Documentation (on merge only)
-  # ---------------------------------------------------------------------------
   documentation:
     name: "📝 Documentation Update"
     runs-on: ubuntu-latest
@@ -229,29 +188,10 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true
     timeout-minutes: 10
-
     steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.ref }}
+      - uses: actions/checkout@v4
+      - run: echo "Documentation agent would run here"
 
-      - name: 🐍 Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: 📝 Run Documentation Agent
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.GITPILOT_API_KEY }}
-        run: |
-          echo "Documentation agent would update README, docstrings, and API docs."
-          echo "Changes would be committed to a gitpilot/docs-update branch."
-
-  # ---------------------------------------------------------------------------
-  # Job 4: Human Override Handler (/approve, /reject commands)
-  # ---------------------------------------------------------------------------
   human-override:
     name: "👤 Human Override"
     runs-on: ubuntu-latest
@@ -261,27 +201,14 @@ jobs:
       (startsWith(github.event.comment.body, '/approve') ||
        startsWith(github.event.comment.body, '/reject'))
     timeout-minutes: 5
-
     steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-
-      - name: 👤 Process Human Override
+      - uses: actions/checkout@v4
+      - name: Process Override
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-        run: |
-          echo "Processing override command from $COMMENT_AUTHOR"
-          echo "Command: $COMMENT_BODY"
+        run: echo "Processing $COMMENT_BODY from $COMMENT_AUTHOR"
 
-      - name: 📋 Log Override to Audit Trail
-        run: |
-          echo "Audit log entry created for human override."
-
-  # ---------------------------------------------------------------------------
-  # Job 5: Deployment Readiness (manual trigger)
-  # ---------------------------------------------------------------------------
   deployment-check:
     name: "🚀 Deployment Readiness"
     runs-on: ubuntu-latest
@@ -289,15 +216,6 @@ jobs:
       github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'gitpilot:deploy-check')
     timeout-minutes: 10
-
     steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-
-      - name: 🚀 Run Deployment Advisor Agent
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
-        run: |
-          echo "Deployment advisor analyzing readiness for promotion to $TARGET_BRANCH"
-          echo "Checking CI/CD config, Dockerfile, K8s manifests..."
+      - uses: actions/checkout@v4
+      - run: echo "Deployment advisor would run here"
