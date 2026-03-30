@@ -1,0 +1,127 @@
+# ============================================================================
+# GitPilot — Autonomous Multi-Agent Git Intelligence & Code Review Agent
+# GitAgent-compliant agent manifest
+# ============================================================================
+
+name: gitpilot
+version: "1.0.0"
+description: >
+  GitPilot is an autonomous multi-agent AI system that lives inside your Git
+  repository. It reviews pull requests, detects bugs and security vulnerabilities,
+  generates documentation and tests, advises on deployments, and orchestrates
+  branch promotions — all with human-in-the-loop safety gates.
+
+model: gemini-2.5-pro
+
+# ---------------------------------------------------------------------------
+# Skills — each maps to a skill directory under skills/
+# ---------------------------------------------------------------------------
+skills:
+  - name: code-review
+    description: >
+      Analyzes pull request diffs to detect bugs, anti-patterns, cyclomatic
+      complexity hotspots, and performance regressions.
+    trigger: pr-opened
+
+  - name: security-analysis
+    description: >
+      Scans code for hardcoded secrets, known CVE patterns, unsafe imports,
+      insecure crypto usage, and OWASP Top-10 vulnerabilities.
+    trigger: pr-opened
+
+  - name: documentation
+    description: >
+      Auto-generates README updates, function-level docstrings, API reference
+      docs, and architecture decision records (ADRs).
+    trigger: pr-merged
+
+  - name: test-generator
+    description: >
+      Creates unit tests, edge-case tests, and integration test scaffolds with
+      framework-aware templates (pytest, Jest, Go testing).
+    trigger: pr-opened
+
+  - name: deployment
+    description: >
+      Validates CI/CD configurations, GitHub Actions workflows, Dockerfile
+      correctness, and deployment readiness before promotion.
+    trigger: manual
+
+# ---------------------------------------------------------------------------
+# Tools — reusable primitives consumed by skills
+# ---------------------------------------------------------------------------
+tools:
+  - git-read
+  - git-write
+  - pr-comment
+  - risk-score
+  - audit-log
+
+# ---------------------------------------------------------------------------
+# Tags & Metadata
+# ---------------------------------------------------------------------------
+tags:
+  - hackathon
+  - code-review
+  - security
+  - documentation
+  - testing
+  - deployment
+  - multi-agent
+  - git-native
+  - pr-automation
+
+hackathon:
+  event: "GitAgent Hackathon 2026"
+  team: "GitPilot"
+  category: "Developer Productivity"
+  submission_date: "2026-03-30"
+  track: "multi-agent"
+  demo_url: "https://github.com/gitpilot-agent/gitpilot"
+
+# ---------------------------------------------------------------------------
+# Runtime Configuration
+# ---------------------------------------------------------------------------
+runtime:
+  engine: gitclaw
+  fallback: clawless
+  max_concurrent_skills: 3
+  timeout_seconds: 300
+  retry_policy:
+    max_retries: 2
+    backoff: exponential
+
+# ---------------------------------------------------------------------------
+# Multi-Agent Orchestration
+# ---------------------------------------------------------------------------
+orchestration:
+  mode: parallel
+  coordinator: gitpilot-orchestrator
+  agents:
+    - role: reviewer
+      skills: [code-review, security-analysis]
+      priority: high
+    - role: documenter
+      skills: [documentation]
+      priority: medium
+    - role: tester
+      skills: [test-generator]
+      priority: medium
+    - role: deployer
+      skills: [deployment]
+      priority: low
+
+# ---------------------------------------------------------------------------
+# Branch Promotion Pipeline
+# ---------------------------------------------------------------------------
+promotion:
+  pipeline:
+    - from: feature/*
+      to: dev
+      gate: auto
+    - from: dev
+      to: staging
+      gate: risk-score < 0.4
+    - from: staging
+      to: main
+      gate: human-approval

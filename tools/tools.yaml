@@ -1,0 +1,416 @@
+# ============================================================================
+# GitPilot — Tool Definitions
+# Reusable primitives consumed by skills
+# ============================================================================
+
+tools:
+
+  # -------------------------------------------------------------------------
+  # git-read — Read repository data without mutations
+  # -------------------------------------------------------------------------
+  - name: git-read
+    version: "1.0.0"
+    description: >
+      Read-only access to the Git repository. Retrieves file contents, diffs,
+      commit history, branch info, and PR metadata. Cannot modify any state.
+    permissions:
+      - read:repository
+      - read:pull_request
+      - read:commit
+    operations:
+      - name: get_file
+        description: Retrieve the contents of a file at a specific ref.
+        parameters:
+          path: { type: string, required: true, description: "File path relative to repo root" }
+          ref: { type: string, default: "HEAD", description: "Git ref (branch, tag, SHA)" }
+        returns:
+          content: { type: string }
+          encoding: { type: string, enum: [utf-8, base64] }
+          size_bytes: { type: integer }
+
+      - name: get_diff
+        description: Retrieve the unified diff for a pull request or between refs.
+        parameters:
+          pr_number: { type: integer, description: "PR number (mutually exclusive with base/head)" }
+          base: { type: string, description: "Base ref for comparison" }
+          head: { type: string, description: "Head ref for comparison" }
+          context_lines: { type: integer, default: 3 }
+        returns:
+          diff: { type: string }
+          files_changed: { type: integer }
+          additions: { type: integer }
+          deletions: { type: integer }
+
+      - name: get_commit_history
+        description: Retrieve commit history for a branch or file.
+        parameters:
+          branch: { type: string, default: "HEAD" }
+          path: { type: string, description: "Optional file path to filter commits" }
+          limit: { type: integer, default: 20 }
+        returns:
+          commits:
+            type: array
+            items:
+              sha: { type: string }
+              message: { type: string }
+              author: { type: string }
+              date: { type: string, format: iso8601 }
+
+      - name: get_pr_metadata
+        description: Retrieve pull request metadata including labels, reviewers, and status.
+        parameters:
+          pr_number: { type: integer, required: true }
+        returns:
+          title: { type: string }
+          description: { type: string }
+          author: { type: string }
+          labels: { type: array, items: { type: string } }
+          reviewers: { type: array, items: { type: string } }
+          status: { type: string, enum: [open, closed, merged] }
+          base_branch: { type: string }
+          head_branch: { type: string }
+          created_at: { type: string, format: iso8601 }
+
+      - name: list_changed_files
+        description: List files changed in a pull request with change types.
+        parameters:
+          pr_number: { type: integer, required: true }
+        returns:
+          files:
+            type: array
+            items:
+              path: { type: string }
+              status: { type: string, enum: [added, modified, deleted, renamed] }
+              additions: { type: integer }
+              deletions: { type: integer }
+              language: { type: string }
+
+    rate_limit:
+      max_calls_per_minute: 60
+      burst: 10
+
+    audit:
+      log_calls: true
+      log_parameters: true
+      log_response_size: true
+
+  # -------------------------------------------------------------------------
+  # git-write — Mutate repository state (guarded)
+  # -------------------------------------------------------------------------
+  - name: git-write
+    version: "1.0.0"
+    description: >
+      Controlled write access to the Git repository. Can create branches,
+      commit changes, and open PRs. All writes pass through safety gates
+      and are logged to the audit trail.
+    permissions:
+      - write:repository
+      - write:pull_request
+    safety:
+      require_review: true
+      blocked_branches: [main, master, production]
+      max_files_per_commit: 20
+      require_conventional_commit: true
+    operations:
+      - name: create_branch
+        description: Create a new branch from a base ref.
+        parameters:
+          branch_name: { type: string, required: true }
+          base_ref: { type: string, default: "dev" }
+        returns:
+          branch: { type: string }
+          sha: { type: string }
+        safety_check: "Branch name must match pattern: gitpilot/*"
+
+      - name: commit_file
+        description: Create or update a file and commit the change.
+        parameters:
+          path: { type: string, required: true }
+          content: { type: string, required: true }
+          message: { type: string, required: true }
+          branch: { type: string, required: true }
+        returns:
+          commit_sha: { type: string }
+          tree_sha: { type: string }
+        safety_check: "Cannot commit to main, master, or production branches"
+
+      - name: create_pr
+        description: Open a pull request with the agent's changes.
+        parameters:
+          title: { type: string, required: true }
+          body: { type: string, required: true }
+          head: { type: string, required: true }
+          base: { type: string, required: true }
+          labels: { type: array, items: { type: string } }
+          draft: { type: boolean, default: true }
+        returns:
+          pr_number: { type: integer }
+          url: { type: string }
+
+      - name: add_label
+        description: Add labels to a pull request.
+        parameters:
+          pr_number: { type: integer, required: true }
+          labels: { type: array, items: { type: string }, required: true }
+        returns:
+          labels: { type: array, items: { type: string } }
+
+    rate_limit:
+      max_calls_per_minute: 10
+      burst: 3
+
+    audit:
+      log_calls: true
+      log_parameters: true
+      log_mutations: true
+      alert_on_blocked_branch: true
+
+  # -------------------------------------------------------------------------
+  # pr-comment — Post structured review comments on PRs
+  # -------------------------------------------------------------------------
+  - name: pr-comment
+    version: "1.0.0"
+    description: >
+      Post review comments on pull requests. Supports inline code comments,
+      review summaries, and threaded discussions. Formats output with Markdown
+      for rich, scannable PR feedback.
+    permissions:
+      - write:pull_request_review
+    operations:
+      - name: post_review
+        description: Post a full review with inline comments and a summary.
+        parameters:
+          pr_number: { type: integer, required: true }
+          event: { type: string, enum: [APPROVE, REQUEST_CHANGES, COMMENT], required: true }
+          body: { type: string, required: true, description: "Review summary in Markdown" }
+          comments:
+            type: array
+            items:
+              path: { type: string }
+              line: { type: integer }
+              body: { type: string }
+              side: { type: string, enum: [LEFT, RIGHT], default: "RIGHT" }
+        returns:
+          review_id: { type: integer }
+          url: { type: string }
+
+      - name: post_comment
+        description: Post a standalone comment on a PR (not a review).
+        parameters:
+          pr_number: { type: integer, required: true }
+          body: { type: string, required: true }
+        returns:
+          comment_id: { type: integer }
+          url: { type: string }
+
+      - name: reply_to_comment
+        description: Reply to an existing review comment thread.
+        parameters:
+          pr_number: { type: integer, required: true }
+          comment_id: { type: integer, required: true }
+          body: { type: string, required: true }
+        returns:
+          reply_id: { type: integer }
+
+      - name: update_check_status
+        description: Update the PR's check status with GitPilot results.
+        parameters:
+          pr_number: { type: integer, required: true }
+          status: { type: string, enum: [queued, in_progress, completed], required: true }
+          conclusion: { type: string, enum: [success, failure, neutral, action_required] }
+          summary: { type: string }
+          details_url: { type: string }
+        returns:
+          check_run_id: { type: integer }
+
+    formatting:
+      template: |
+        ## 🤖 GitPilot Review — {{ verdict_emoji }} {{ verdict }}
+
+        **Risk Score:** {{ risk_score }}/1.0 {{ risk_bar }}
+
+        ### Summary
+        {{ summary }}
+
+        ### Findings ({{ findings_count }})
+        {{ findings_table }}
+
+        ---
+        <details>
+        <summary>📊 Detailed Analysis</summary>
+
+        {{ detailed_findings }}
+
+        </details>
+
+        ---
+        *GitPilot v{{ version }} • {{ timestamp }} • [Audit Log]({{ audit_url }})*
+
+    rate_limit:
+      max_calls_per_minute: 20
+      burst: 5
+
+    audit:
+      log_calls: true
+      log_content_hash: true
+
+  # -------------------------------------------------------------------------
+  # risk-score — Compute composite risk scores for changes
+  # -------------------------------------------------------------------------
+  - name: risk-score
+    version: "1.0.0"
+    description: >
+      Compute a composite risk score (0.0–1.0) for a set of code changes by
+      aggregating findings from all skills. Drives automated gating decisions
+      for branch promotion.
+    operations:
+      - name: compute
+        description: Calculate the composite risk score from skill outputs.
+        parameters:
+          skill_results:
+            type: array
+            items:
+              type: object
+              properties:
+                skill: { type: string }
+                risk_contribution: { type: number }
+                findings_count: { type: integer }
+                max_severity: { type: string }
+        returns:
+          composite_score: { type: number, minimum: 0, maximum: 1 }
+          breakdown:
+            type: object
+            properties:
+              security: { type: number }
+              bugs: { type: number }
+              complexity: { type: number }
+              test_coverage: { type: number }
+              documentation: { type: number }
+          verdict: { type: string, enum: [auto-approve, flag-for-review, block] }
+          thresholds:
+            type: object
+            properties:
+              auto_approve_below: { type: number, default: 0.3 }
+              block_above: { type: number, default: 0.7 }
+          gate_action:
+            type: string
+            description: "Action to take based on verdict and target branch"
+
+      - name: get_history
+        description: Retrieve risk score history for trend analysis.
+        parameters:
+          branch: { type: string }
+          limit: { type: integer, default: 50 }
+        returns:
+          scores:
+            type: array
+            items:
+              pr_number: { type: integer }
+              score: { type: number }
+              date: { type: string, format: iso8601 }
+              verdict: { type: string }
+
+    formula: |
+      risk = (
+          0.35 × security_severity
+        + 0.25 × bug_probability
+        + 0.20 × complexity_delta
+        + 0.10 × test_coverage_gap
+        + 0.10 × documentation_debt
+      )
+
+    audit:
+      log_calls: true
+      log_formula_inputs: true
+      log_result: true
+
+  # -------------------------------------------------------------------------
+  # audit-log — Append-only audit trail
+  # -------------------------------------------------------------------------
+  - name: audit-log
+    version: "1.0.0"
+    description: >
+      Append-only, immutable audit log for all GitPilot decisions and actions.
+      Every skill invocation, tool call, finding, and human override is recorded
+      with full context for compliance and debugging.
+    storage:
+      backend: file
+      path: ".gitpilot/audit/"
+      format: jsonl
+      rotation:
+        max_size_mb: 50
+        max_files: 10
+        compress: true
+    operations:
+      - name: append
+        description: Write an audit log entry. Entries are immutable once written.
+        parameters:
+          event_type:
+            type: string
+            required: true
+            enum:
+              - skill_invoked
+              - skill_completed
+              - tool_called
+              - finding_reported
+              - risk_score_computed
+              - gate_decision
+              - human_override
+              - error
+              - promotion
+          agent_id: { type: string, required: true }
+          pr_number: { type: integer }
+          payload: { type: object, description: "Event-specific structured data" }
+          timestamp: { type: string, format: iso8601, auto: true }
+          correlation_id: { type: string, description: "Trace ID for correlating related events" }
+        returns:
+          entry_id: { type: string, format: uuid }
+          sequence_number: { type: integer }
+
+      - name: query
+        description: Query audit log entries with filters.
+        parameters:
+          event_type: { type: string }
+          pr_number: { type: integer }
+          agent_id: { type: string }
+          since: { type: string, format: iso8601 }
+          until: { type: string, format: iso8601 }
+          limit: { type: integer, default: 100 }
+        returns:
+          entries: { type: array }
+          total_count: { type: integer }
+
+      - name: export
+        description: Export audit log entries for compliance reporting.
+        parameters:
+          format: { type: string, enum: [json, csv, sarif], default: "json" }
+          since: { type: string, format: iso8601 }
+          until: { type: string, format: iso8601 }
+        returns:
+          file_path: { type: string }
+          entry_count: { type: integer }
+
+    schema:
+      entry:
+        type: object
+        properties:
+          id: { type: string, format: uuid }
+          sequence: { type: integer }
+          timestamp: { type: string, format: iso8601 }
+          event_type: { type: string }
+          agent_id: { type: string }
+          pr_number: { type: integer }
+          correlation_id: { type: string }
+          payload: { type: object }
+          model_version: { type: string }
+          skill_version: { type: string }
+          duration_ms: { type: integer }
+          success: { type: boolean }
+
+    integrity:
+      checksums: sha256
+      append_only: true
+      tamper_detection: true
+
+    audit:
+      self_log: false  # Prevent infinite recursion

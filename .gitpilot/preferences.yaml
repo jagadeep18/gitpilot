@@ -1,0 +1,76 @@
+# ============================================================================
+# GitPilot — Team Preferences
+# Customize GitPilot behavior for your team
+# ============================================================================
+# Drop this file at .gitpilot/preferences.yaml in your repository root.
+# GitPilot reads it at the start of every run to adapt to your conventions.
+
+# General
+project:
+  name: "my-awesome-project"
+  primary_language: python
+  languages: [python, javascript, typescript]
+  test_framework: pytest
+  doc_style: google
+
+# Code Review
+code_review:
+  complexity_threshold: 15
+  max_findings_per_file: 10
+  severity_weights:
+    critical: 1.0
+    high: 0.7
+    medium: 0.4
+    low: 0.1
+    info: 0.0
+  ignore_patterns:
+    - "*.generated.*"
+    - "vendor/*"
+    - "node_modules/*"
+    - "*.min.js"
+  banned_patterns:
+    - "TODO.*HACK"
+    - "FIXME.*URGENT"
+
+# Security
+security:
+  secret_scanning: true
+  dependency_audit: true
+  owasp_enabled: true
+  allowed_eval_paths: []
+  custom_banned_imports:
+    python: [pickle.loads, os.system]
+
+# Testing
+testing:
+  framework: pytest
+  style: classical
+  coverage_target: 0.80
+  min_tests_per_function: 4
+  auto_commit_tests: false
+
+# Documentation
+documentation:
+  style: google
+  api_format: openapi3
+  adr_directory: docs/adr
+  auto_commit_docs: true
+  readme_sections: [installation, usage, api-reference, contributing]
+
+# Deployment
+deployment:
+  coverage_target: 0.80
+  require_rollback_plan: true
+  github_actions:
+    require_version_pinning: true
+    require_timeout: true
+
+# Risk thresholds
+risk:
+  auto_approve_below: 0.3
+  block_above: 0.7
+
+# Notifications
+notifications:
+  mention_on_critical: true
+  default_reviewers: []

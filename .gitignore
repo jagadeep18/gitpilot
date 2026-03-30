@@ -1,0 +1,16 @@
+# GitPilot ignores
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+*.log
+.gitpilot/cache/
+.gitpilot/logs/
+node_modules/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+dist/
+build/

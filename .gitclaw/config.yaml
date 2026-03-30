@@ -1,0 +1,144 @@
+# ============================================================================
+# GitPilot — gitclaw Runtime Configuration
+# Primary execution engine for the GitPilot agent
+# ============================================================================
+
+# gitclaw engine settings
+engine:
+  name: gitclaw
+  version: ">=0.5.0"
+  mode: agent
+
+# Agent manifest
+agent:
+  manifest: ../agent.yaml
+  soul: ../SOUL.md
+  rules: ../RULES.md
+
+# Model configuration
+model:
+  provider: google
+  name: gemini-2.5-pro
+  temperature: 0.1          # Low temperature for deterministic output
+  max_tokens: 8192
+  top_p: 0.95
+  stop_sequences: []
+  api_key_env: GITPILOT_API_KEY
+
+# Skill execution
+skills:
+  directory: ../skills/
+  parallel_execution: true
+  max_concurrent: 3
+  timeout_per_skill: 120     # seconds
+
+# Tool registration
+tools:
+  manifest: ../tools/tools.yaml
+  sandbox: true
+  network_access: false      # Tools cannot make arbitrary network calls
+  filesystem_scope: repository  # Restrict to repo boundary
+
+# Trigger configuration
+triggers:
+  pull_request:
+    events: [opened, synchronize, reopened]
+    branches: [dev, staging, main]
+    auto_run_skills: [code-review, security-analysis]
+  pull_request_merged:
+    events: [closed]
+    condition: merged == true
+    auto_run_skills: [documentation]
+  manual:
+    command_prefix: "/gitpilot"
+    skills: [deployment, test-generator]
+  schedule:
+    cron: "0 6 * * 1"        # Weekly Monday 6 AM security sweep
+    skills: [security-analysis]
+
+# Multi-agent orchestration
+orchestration:
+  coordinator: gitpilot-orchestrator
+  strategy: parallel-then-aggregate
+  aggregation:
+    method: merge-findings
+    deduplication: true
+    priority_sort: true
+  agents:
+    - id: reviewer
+      skills: [code-review]
+      priority: 1
+    - id: security-analyst
+      skills: [security-analysis]
+      priority: 1
+    - id: tester
+      skills: [test-generator]
+      priority: 2
+    - id: documenter
+      skills: [documentation]
+      priority: 3
+    - id: deployer
+      skills: [deployment]
+      priority: 4
+
+# Safety gates
+gates:
+  auto_approve:
+    condition: risk_score < 0.3
+    action: approve_pr
+  flag_for_review:
+    condition: risk_score >= 0.3 AND risk_score <= 0.7
+    action: request_review
+    add_label: needs-human-review
+  block:
+    condition: risk_score > 0.7
+    action: block_pr
+    add_label: blocked-by-gitpilot
+    notify: [repository_maintainers]
+
+# Audit logging
+audit:
+  enabled: true
+  directory: ../.gitpilot/audit/
+  format: jsonl
+  retention_days: 90
+  include:
+    - skill_invocations
+    - tool_calls
+    - findings
+    - risk_scores
+    - gate_decisions
+    - human_overrides
+    - errors
+
+# Caching
+cache:
+  enabled: true
+  directory: ../.gitpilot/cache/
+  ttl_hours: 24
+  max_size_mb: 100
+  cache_keys:
+    - file_hash
+    - skill_version
+    - model_version
+
+# Notifications
+notifications:
+  slack:
+    enabled: false
+    webhook_env: GITPILOT_SLACK_WEBHOOK
+    events: [block, critical_finding]
+  email:
+    enabled: false
+    recipients_env: GITPILOT_EMAIL_RECIPIENTS
+    events: [weekly_report]
+
+# Logging
+logging:
+  level: info
+  format: json
+  output: stderr
+  file: ../.gitpilot/logs/gitpilot.log
+  rotation:
+    max_size_mb: 10
+    max_files: 5

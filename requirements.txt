@@ -1,0 +1,5 @@
+gitclaw
+pyyaml>=6.0
+requests>=2.31
+rich>=13.0
+click>=8.1
