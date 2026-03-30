@@ -1,8 +1,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/GitAgent-Hackathon%202026-blueviolet?style=for-the-badge&logo=github" alt="GitAgent Hackathon 2026" />
-  <img src="https://img.shields.io/badge/Track-Multi--Agent-orange?style=for-the-badge" alt="Multi-Agent Track" />
+  <!-- <img src="https://img.shields.io/badge/Track-Multi--Agent-orange?style=for-the-badge" alt="Multi-Agent Track" />
   <img src="https://img.shields.io/badge/Model-Gemini%202.5%20Pro-4285F4?style=for-the-badge&logo=google" alt="Gemini 2.5 Pro" />
-  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="MIT License" />
+  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="MIT License" /> -->
 </p>
 
 <h1 align="center">🧭 GitPilot</h1>
@@ -328,68 +328,6 @@ docker run -p 8090:8090 \
 
 ---
 
-## 🏆 Hackathon
-
-### GitAgent Hackathon 2026
-
-| Field | Value |
-|-------|-------|
-| **Project** | GitPilot |
-| **Category** | Developer Productivity |
-| **Track** | Multi-Agent |
-| **Team** | GitPilot |
-| **Date** | 2026-03-30 |
-
-### Why GitPilot Wins
-
-1. **Multi-Agent Architecture** — Five specialized agents running in parallel, not a monolithic prompt.
-2. **Production Ready** — gitclaw, clawless, Docker, and GitHub Actions deployment options.
-3. **Risk-Driven Decisions** — Weighted formula producing actionable gate decisions, not just "here are some issues."
-4. **Human-in-the-Loop** — Safety gates with `/approve` and `/reject` commands.
-5. **Full Audit Trail** — Append-only, tamper-proof decision logs for compliance.
-6. **Extensible** — Add new skills and tools without modifying the core.
-7. **Framework Agnostic** — Supports 8+ test frameworks, 5+ doc styles, all major languages.
-8. **Clean Architecture** — Follows GitAgent standard with clear separation of concerns.
-
-### GitHub Submission Steps
-
-```bash
-# 1. Create a new GitHub repository
-gh repo create gitpilot-agent/gitpilot --public
-
-# 2. Initialize Git
-cd my-agent
-git init
-git add .
-git commit -m "feat: initial GitPilot agent — hackathon submission"
-
-# 3. Push to GitHub
-git remote add origin https://github.com/gitpilot-agent/gitpilot.git
-git branch -M main
-git push -u origin main
-
-# 4. Create a release
-gh release create v1.0.0 --title "GitPilot v1.0.0 — Hackathon Submission" \
-  --notes "Autonomous Multi-Agent Git Intelligence & Code Review Agent"
-
-# 5. Add hackathon tags
-gh repo edit --add-topic gitagent,hackathon,multi-agent,code-review,ai-agent
-
-# 6. Submit to hackathon portal
-# Follow the GitAgent Hackathon submission form with your repo URL
-```
-
----
-
-## 🤝 Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## 📄 License
-
-[MIT](LICENSE) © 2026 GitPilot
-
----
 
 <p align="center">
   <strong>Built with ❤️ for the GitAgent Hackathon 2026</strong><br/>
